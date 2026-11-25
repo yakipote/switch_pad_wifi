@@ -25,7 +25,7 @@ Claude ──MCP(HTTP)──▶ 常駐サーバー ──Wi-Fi──▶ ESP32-S3
 |---|---|
 | ESP32-S3 ボード | USB（OTG）が使えるもの。動作確認はスイッチサイエンス「ESPr Developer S3 Type-C」（ESP32-S3-WROOM-1-N16R8）。2.4GHz の Wi-Fi が必要 |
 | USB ケーブル | ESP32-S3 の USB 端子 ↔ Switch 2（ドック）の USB |
-| キャプチャーボード | Switch 2 の HDMI を PC に取り込む。動作確認は AVerMedia GC311G2 |
+| キャプチャーボード（または Web カメラ） | Switch 2 の HDMI を PC に取り込む。動作確認は AVerMedia GC311G2。テレビの画面を Web カメラで撮る形でも動く（後述の 1-3） |
 
 **PC（Windows）のソフト**
 
@@ -88,6 +88,20 @@ CAPTURE_NAME=GC311
 ```
 
 `CAPTURE_NAME` はキャプチャーボードの名前の一部です。`make probe` で一覧が出ます。設定したら `make start` → `make status` で、ESP32 とキャプチャーの両方が OK になるか確認します。
+
+#### Web カメラで画面を見せる場合
+
+キャプチャーボードが無くても、テレビの画面を Web カメラで撮れば動きます（OpenCV でカメラとして読んでいるだけなので、種類は問いません）。`.env` をこうします。
+
+```ini
+CAPTURE_NAME=<Web カメラの名前の一部>
+CAPTURE_FOURCC=MJPG
+```
+
+- 多くの Web カメラは 1080p を MJPG でしか出せないので、`CAPTURE_FOURCC=MJPG` にする（既定の YUY2 のままだと解像度やコマ数が落ちる）。うまくいかなければ空にして、カメラの既定の形式にする
+- 正面から、画面がなるべく大きく映るように置く。斜めの角度、照明の映り込み、モアレがあると小さい文字が読みにくくなる
+- 画面の外（壁など）も映るので、`screenshot` の `crop` の座標は「画面全体＝1920x1080」にならない
+- 露出やピントの調整で少し遅れることがあるので、`press_and_look` の `wait_ms` は長めがよい
 
 ### 1-4. Claude に MCP サーバーを登録する
 
