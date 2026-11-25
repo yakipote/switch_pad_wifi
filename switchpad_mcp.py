@@ -179,11 +179,11 @@ def _recent_events(after_id: int = 0) -> list[dict[str, Any]]:
         return [e for e in _events if e["id"] > after_id]
 
 
-def _post_event(kind: str, text: str, data: Any = None) -> None:
-    """イベントを記録する。持ち主なら直接、そうでなければ HTTP で送る。失敗しても操作は止めない"""
+def _post_event(kind: str, text: str, data: Any = None) -> dict[str, Any] | None:
+    """イベントを記録する。持ち主なら直接、そうでなければ HTTP で送る。失敗しても操作は止めない。
+    持ち主のときは記録したイベントを返す（say の wait で使う）"""
     if _share_server is not None:
-        _append_event(kind, text, data)
-        return
+        return _append_event(kind, text, data)
     try:
         with httpx.Client(timeout=2.0) as client:
             client.post(
@@ -192,6 +192,7 @@ def _post_event(kind: str, text: str, data: Any = None) -> None:
             )
     except (httpx.HTTPError, OSError) as exc:
         _log(f"event post failed: {exc}")
+    return None
 
 
 _BUTTON_NAMES = {
@@ -255,15 +256,33 @@ from anyio import sleep as _async_sleep
 from anyio.to_thread import run_sync as _in_thread
 
 
+def _reading_seconds(text: str) -> float:
+    """読み上げがないとき、吹き出しを読み終わるまでの目安（1 秒 7 文字 ＋ 1 秒、2〜15 秒）"""
+    return max(2.0, min(15.0, len(text) / 7 + 1))
+
+
 @mcp.tool()
-async def say(text: str) -> dict[str, Any]:
+async def say(text: str, wait: bool = False) -> dict[str, Any]:
     """配信画面にコメント（今考えていること・次にやること）を表示する。
 
     例: say("キャラセレクトに戻ってリュウを選びます")
     操作の前に一言添えると、見ている人に意図が伝わる。短めに。
+
+    wait=True にすると、読み上げ（VOICEVOX）が終わるまで待ってから返る。
+    読み上げがオフのときは、文字数から見積もった時間だけ待つ。
+    say を続けて言わせたいとき、次の操作の前に言い終わってほしいときに使う
+    （別途 sleep を挟む必要はない）。
     """
-    await _in_thread(_post_event, "comment", text)
-    return {"ok": True}
+    event = await _in_thread(_post_event, "comment", text)
+    done = _take_speech_done(event["id"]) if event else None
+    if not wait:
+        return {"ok": True}
+    if done is not None:
+        finished = await _in_thread(done.wait, 60.0)
+        return {"ok": True, "waited": "speech", "finished": finished}
+    seconds = _reading_seconds(text)
+    await _async_sleep(seconds)
+    return {"ok": True, "waited": "estimate", "seconds": round(seconds, 1)}
 
 
 def _status_sync() -> dict[str, Any]:
@@ -583,7 +602,9 @@ def _build_http_app() -> Any:
         return Response(body, media_type="image/jpeg")
 
     async def info(_request: Request) -> Response:
-        return JSONResponse(_grabber.info())
+        body = _grabber.info()
+        body["voice"] = _voicevox.enabled  # 読み上げが動いているか（make voice が待つのに使う）
+        return JSONResponse(body)
 
     async def events(request: Request) -> Response:
         try:
@@ -764,7 +785,7 @@ class VoicevoxSpeaker:
     """コメントを順番に読み上げるワーカー。重ならないよう 1 つずつ再生する"""
 
     def __init__(self) -> None:
-        self._queue: queue.Queue[str] = queue.Queue()
+        self._queue: queue.Queue[tuple[str, threading.Event]] = queue.Queue()
         self._thread: threading.Thread | None = None
         self.enabled = False
 
@@ -775,25 +796,33 @@ class VoicevoxSpeaker:
         self._thread = threading.Thread(target=self._run, name="voicevox", daemon=True)
         self._thread.start()
 
-    def say(self, text: str) -> None:
+    def say(self, text: str) -> threading.Event | None:
+        """読み上げ待ちの列に入れる。読み終わったら（または捨てられたら）立つ Event を返す。
+        読み上げが無効なら None"""
         if not self.enabled:
-            return
-        # 読み上げが追いつかないときは古いものを捨てて、最新を優先する
+            return None
+        # 読み上げが追いつかないときは古いものを捨てて、最新を優先する。
+        # 捨てた文を待っている人が止まらないよう、その Event は立てておく
         while self._queue.qsize() >= 3:
             try:
-                self._queue.get_nowait()
+                _, dropped = self._queue.get_nowait()
+                dropped.set()
             except queue.Empty:
                 break
-        self._queue.put(text)
+        done = threading.Event()
+        self._queue.put((text, done))
+        return done
 
     def _run(self) -> None:
         while True:
-            text = self._queue.get()
+            text, done = self._queue.get()
             try:
                 wav = self._synthesize(text)
-                self._play(wav)
+                self._play(wav)  # 再生が終わるまでブロックする
             except Exception as exc:
                 _log(f"voicevox error: {exc}")
+            finally:
+                done.set()
 
     @staticmethod
     def _strip_emoji(text: str) -> str:
@@ -977,11 +1006,27 @@ def _stop_running_server() -> None:
 _original_append_event = _append_event
 
 
+# コメントのイベント ID → 読み終わったら立つ Event。say(wait=True) が待つのに使う
+_speech_done: dict[int, threading.Event] = {}
+_speech_done_lock = threading.Lock()
+
+
 def _append_event(kind: str, text: str, data: Any = None) -> dict[str, Any]:  # noqa: F811
     event = _original_append_event(kind, text, data)
     if kind == "comment":
-        _voicevox.say(text)
+        done = _voicevox.say(text)
+        if done is not None:
+            with _speech_done_lock:
+                _speech_done[event["id"]] = done
+                # 誰も待たなかった分（/event 経由など）がたまらないよう、古いものから捨てる
+                while len(_speech_done) > 50:
+                    _speech_done.pop(next(iter(_speech_done)))
     return event
+
+
+def _take_speech_done(event_id: int) -> threading.Event | None:
+    with _speech_done_lock:
+        return _speech_done.pop(event_id, None)
 
 
 # ---------------------------------------------------------------

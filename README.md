@@ -215,7 +215,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\switchpad.ps1 start
 | `press_and_look` | 押して、少し待って、画面を撮る |
 | `sequence` | タイミング付きの入力列（コマンド技など） |
 | `set_state` / `rest` | 押しっぱなし／全部離す |
-| `say` | 配信画面にコメントを出す（`make voice` なら読み上げも） |
+| `say` | 配信画面にコメントを出す（`make voice` なら読み上げも）。`wait=True` で言い終わるまで待つ |
 
 ### ライブ表示と配信
 

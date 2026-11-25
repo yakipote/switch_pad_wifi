@@ -87,7 +87,7 @@ function Test-ServerAlive($shell) {
     return [bool]($kids | Where-Object { $_.Name -match '^(uv|python)' })
 }
 
-function Start-Capture([string]$extra) {
+function Start-Capture([string]$extra, [bool]$needVoice = $false) {
     if (Test-Capture) {
         Write-Host "もう起動しています（止めるなら make stop）: http://127.0.0.1:$Port/"
         return
@@ -97,11 +97,12 @@ function Start-Capture([string]$extra) {
     $shell = Start-Process powershell -WindowStyle Minimized -WorkingDirectory $PSScriptRoot -PassThru `
         -ArgumentList "-NoProfile", "-NoExit", "-Command", "uv run $script --capture-server $extra"
     Write-Host "起動を待っています…（VOICEVOX は初回だけイメージのダウンロードで数分かかる）"
-    # VOICEVOX 付きはエンジンの準備ができてからポートを開くので長めに待つ
+    # ポートはすぐ開くが、VOICEVOX はそのあと準備するので、make voice は読み上げが有効になるまで待つ
     for ($i = 0; $i -lt 150; $i++) {
         $info = Test-Capture
-        if ($info) {
-            Write-Host "OK: $($info.device_name) $($info.size)  ->  http://127.0.0.1:$Port/  （MCP: /mcp）"
+        if ($info -and (-not $needVoice -or $info.voice)) {
+            $voiceNote = if ($info.voice) { "、読み上げ ON" } else { "" }
+            Write-Host "OK: $($info.device_name)$voiceNote  ->  http://127.0.0.1:$Port/  （MCP: /mcp）"
             return
         }
         # 起動直後は uv がまだ立ち上がっていないことがあるので、少し待ってから見張る
@@ -136,7 +137,7 @@ function Show-Status {
 
 switch ($Command) {
     "start"   { Start-Capture "" }
-    "voice"   { Initialize-Docker; Start-Capture "--voicevox-docker $Voicevox" }
+    "voice"   { Initialize-Docker; Start-Capture "--voicevox-docker $Voicevox" $true }
     "stop"    { uv run $script --stop }
     "restart" { uv run $script --stop; Start-Sleep 2; Start-Capture "" }
     "status"  { Show-Status }
