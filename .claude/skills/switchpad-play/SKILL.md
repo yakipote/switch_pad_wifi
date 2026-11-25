@@ -23,6 +23,7 @@ description: switchpad の MCP ツール（status / screenshot / press / press_a
 - 実際に試して確かめたことだけを、次に再現できる形で書く（ボタン名、何段目の何番目、`sequence` の JSON など）。推測は書かない
 - 見出し（section）は既存のものに合わせる（`メニュー`、`キャラクター選択`、`コマンド`、`画面の見かた` など）
 - メモは公開リポジトリに入るので、個人情報やアカウント名は書かない
+- **`screenshot` / `press_and_look` の返り値に `notes_updated: ["sf6"]` が付いたら、そのメモが外で書き換わった**（ユーザーが手で直した、別のセッションが書き足した など）。区切りのいいところで `notes_read` し直して、新しい内容に合わせる。印は同じ変更につき 1 回しか出ない
 
 ## 2. 操作のループ
 
@@ -97,3 +98,4 @@ description: switchpad の MCP ツール（status / screenshot / press / press_a
 - 2026-11-25：SF6 の録画から追加。VOICEVOX の読み上げの間合い、録画時は気持ちも say、sequence 直後は 1〜2 秒待って撮る、演出のある画面は 1 回ずつ押す、1P ランプの確かめ方
 - 2026-11-25：say に wait を追加したので、間を空けるのは sleep ではなく say(wait=True) にする、と書き換え
 - 2026-11-26：攻略メモ（notes_list / notes_read / notes_add）を追加。ゲームを始めたら notes_read、新しく分かったら notes_add
+- 2026-11-26：screenshot / press_and_look の返り値に notes_updated が出たら notes_read し直す、を追加

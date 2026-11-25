@@ -22,6 +22,7 @@ Claude から使うための MCP サーバー。
   CAPTURE_HEIGHT     取り込み解像度の高さ（既定: 1080）
   CAPTURE_FOURCC     取り込み形式（既定: YUY2。MJPG は色化けする。空文字でデバイス既定のまま）
 
+  CAPTURE_TEST_IMAGE 試験用。画像ファイルを指定すると、キャプチャーボードの代わりにその静止画を使う
   SWITCHPAD_NOTES_DIR  ゲームごとの攻略メモ（notes_* ツール）の保存先（既定: このフォルダの games/）
 
   SWITCHPAD_TOKEN が空なら、同じフォルダの config.h の API_TOKEN を読む
@@ -74,6 +75,8 @@ CAPTURE_DEVICE = int(os.environ.get("CAPTURE_DEVICE", "0"))
 CAPTURE_WIDTH = int(os.environ.get("CAPTURE_WIDTH", "1920"))
 CAPTURE_HEIGHT = int(os.environ.get("CAPTURE_HEIGHT", "1080"))
 CAPTURE_FOURCC = os.environ.get("CAPTURE_FOURCC", "YUY2")
+# 試験用: 画像ファイルを指定すると、キャプチャーボードを開かずにその静止画を映像の代わりにする
+CAPTURE_TEST_IMAGE = os.environ.get("CAPTURE_TEST_IMAGE", "")
 
 # 最初のフレームが来るまで待つ上限（秒）
 FIRST_FRAME_TIMEOUT = 10.0
@@ -402,6 +405,9 @@ class FrameGrabber:
         return cap
 
     def _run(self) -> None:
+        if CAPTURE_TEST_IMAGE:
+            self._run_test_image()
+            return
         cap = None
         while True:
             try:
@@ -423,6 +429,24 @@ class FrameGrabber:
                     cap.release()
                     cap = None
                 time.sleep(2.0)
+
+    def _run_test_image(self) -> None:
+        """CAPTURE_TEST_IMAGE: キャプチャーボードを開かず、静止画を映像の代わりにする（試験用）"""
+        import cv2
+
+        frame = cv2.imread(CAPTURE_TEST_IMAGE)
+        with self._lock:
+            if frame is None:
+                self._error = f"CAPTURE_TEST_IMAGE を読めませんでした: {CAPTURE_TEST_IMAGE}"
+                return
+            self._frame = frame
+            self._actual_size = f"{frame.shape[1]}x{frame.shape[0]}"
+        _log(f"using test image instead of capture: {CAPTURE_TEST_IMAGE}")
+        while True:
+            with self._lock:
+                self._frame_at = time.time()
+                self._frame_count += 1
+            time.sleep(1.0)
 
     def latest(self, timeout: float = FIRST_FRAME_TIMEOUT) -> Any:
         """最新フレームを返す。まだ 1 枚もなければ timeout 秒まで待つ"""
@@ -737,24 +761,38 @@ def _encode(frame: Any, max_width: int, crop: list[int] | None) -> Image:
     return Image(data=buf.getvalue(), format="jpeg")
 
 
-@mcp.tool()
-async def screenshot(max_width: int = 640, crop: list[int] | None = None) -> Image:
+def _with_notes_updates(image: Image) -> Image | list[Any]:
+    """読んだことのある攻略メモが外で書き換わっていたら、画像のあとに印を付けて返す。
+    変わっていなければ画像だけ（トークンを増やさない）"""
+    changed = _notes_changes()
+    if not changed:
+        return image
+    return [image, {"notes_updated": changed, "hint": "攻略メモが更新された。notes_read で読み直す"}]
+
+
+# 返り値は画像だけのことも、画像＋印のこともあるので、構造化出力は使わない
+@mcp.tool(structured_output=False)
+async def screenshot(max_width: int = 640, crop: list[int] | None = None) -> Image | list[Any]:
     """キャプチャーボードから Switch の画面を 1 枚撮って返す。
 
     max_width: 返す画像の最大幅。640 より大きいと転送で止まることがあるので、
                細かく見たいときは crop で一部を切り出す
     crop: [x, y, w, h] を元画像（1920x1080）の座標で指定すると、その範囲だけを切り出す
+    notes_read で読んだ攻略メモがその後に書き換わっていたら、画像のあとに
+    {"notes_updated": ["sf6"]} が付く。そのときは notes_read で読み直す。
     """
-    return await _in_thread(lambda: _encode(_latest_frame(), max_width, crop))
+    image = await _in_thread(lambda: _encode(_latest_frame(), max_width, crop))
+    return await _in_thread(_with_notes_updates, image)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 async def press_and_look(
     inputs: dict[str, Any], ms: int = 100, wait_ms: int = 600, max_width: int = 640
-) -> Image:
+) -> Image | list[Any]:
     """ボタンを押して、少し待ってから画面を撮る（メニュー操作を 1 回で済ませる用）。
 
     inputs と ms は press と同じ。wait_ms は押してから撮影するまでの待ち時間。
+    screenshot と同じく、攻略メモが書き換わっていたら notes_updated が付く。
     """
     await press(inputs, ms)
     await _async_sleep((ms + wait_ms) / 1000.0)
@@ -799,6 +837,32 @@ def _note_path(slug: str) -> str:
     return os.path.join(NOTES_DIR, f"{slug}.md")
 
 
+# notes_read で読んだメモの (mtime_ns, size)。ファイルが無かったときは None。
+# screenshot / press_and_look のたびに os.stat だけで見比べ、外で書き換わっていたら知らせる。
+# stateless_http なのでセッションは区別できない。クライアントは 1 つの前提でプロセス全体で持つ
+_notes_seen: dict[str, tuple[int, int] | None] = {}
+
+
+def _note_signature(slug: str) -> tuple[int, int] | None:
+    try:
+        st = os.stat(_note_path(slug))
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
+def _notes_changes() -> list[str]:
+    """読んだあとに変わったメモの slug。知らせた変更は覚え直すので、同じ変更は 1 回だけ返る"""
+    changed = []
+    with _notes_lock:
+        for slug, seen in _notes_seen.items():
+            now = _note_signature(slug)
+            if now != seen:
+                _notes_seen[slug] = now
+                changed.append(slug)
+    return changed
+
+
 def _note_title(path: str) -> str:
     """最初の見出し（無ければ最初の空でない行）"""
     try:
@@ -826,6 +890,9 @@ def _notes_list_sync() -> dict[str, Any]:
 
 def _notes_read_sync(game: str) -> dict[str, Any]:
     slug = _note_slug(game)
+    with _notes_lock:
+        # 読む前の状態を覚える（読んでいる間に変わったら、次の確認で知らせる側に倒す）
+        _notes_seen[slug] = _note_signature(slug)
     try:
         with open(_note_path(slug), encoding="utf-8") as f:
             content = f.read()
@@ -900,8 +967,13 @@ def _notes_add_sync(game: str, text: str, section: str | None, title: str | None
                 lines.pop()
             lines += ["", *entry.splitlines()] if lines else entry.splitlines()
 
+        # 外での変更があったかを書く前に確かめておく（自分の追記で上書きして見落とさないように）
+        external_change = slug in _notes_seen and _note_signature(slug) != _notes_seen[slug]
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write("\n".join(lines).rstrip("\n") + "\n")
+        # 自分で書いた分は知らせない。読んだことのあるメモだけ、覚えている状態を更新する
+        if slug in _notes_seen and not external_change:
+            _notes_seen[slug] = _note_signature(slug)
     return {
         "ok": True,
         "game": slug,
