@@ -11,7 +11,7 @@ Claude ──MCP(HTTP)──▶ 常駐サーバー ──Wi-Fi──▶ ESP32-S3
 - **ESP32-S3**（`switch_pad_wifi.ino`）：Switch からは USB コントローラーに見える。Wi-Fi の HTTP API でボタンを押す
 - **常駐サーバー**（`switchpad_mcp.py --capture-server`、`make start` で起動）：これ 1 つで全部やる。キャプチャーボードの映像を取り込み続け、MCP サーバー（`/mcp`）、ブラウザのライブ表示、読み上げを担当する
 
-細かい仕様やハマりどころは [HANDOFF.md](HANDOFF.md) にあります。
+ESP32 の HTTP API と入力名は [switch_pad_wifi.ino](switch_pad_wifi.ino) の冒頭、PC 側の環境変数と使い方は [switchpad_mcp.py](switchpad_mcp.py) の冒頭にまとめてあります。
 
 ---
 
@@ -150,7 +150,7 @@ claude mcp add --transport http switchpad http://127.0.0.1:8765/mcp
 - ESP32 の IP やキャプチャーボードは `.env` で設定する（1-3）
 - 以前の設定（`uv run switchpad_mcp.py` を Claude から直接起動する方式）もまだ動くが、Python が Claude の中にもう 1 つ増えるので非推奨
 
-ほかの環境変数は [HANDOFF.md §6.3](HANDOFF.md) を参照。
+ほかの環境変数は [switchpad_mcp.py](switchpad_mcp.py) の冒頭と、[.env.example](.env.example) を参照。
 
 ---
 
@@ -233,7 +233,7 @@ VOICEVOX を配信で使うときは、キャラクターごとのクレジッ�
 
 キャプチャーボードは **1 つのアプリしか開けない** ので、OBS と常駐サーバーで取り合いになります。OBS にキャプチャーボードを持たせ、常駐サーバーは OBS の仮想カメラから映像をもらう形にします。
 
-> この構成はまだ実機で通しで試していません。うまくいかないところがあれば HANDOFF.md に追記してください。
+> この構成はまだ実機で通しで試していません。うまくいかないところがあれば、Issue で教えてください。
 
 **1. OBS でシーンを作る**
 
