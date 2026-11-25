@@ -242,9 +242,17 @@ uv run .\ollama_agent.py --allow-input "十字キーの右でカーソルを 1 �
 uv run .\ollama_agent.py --list-tools
 ```
 
-- ボタンを押すツール（`press` `sequence` `set_state` `rest` `press_and_look`）は `--allow-input` を付けたときだけモデルに渡す。付けたときは最後に必ず `rest` を送る
+遊ばせるなら対話モード（`--chat`）が便利です。会話を続けたまま、`あなた>` に次の指示を入れられます。指示は「タイトル画面まで」「トレーニングモードに入って」くらいに小さく区切るのがコツ。
+
+```powershell
+uv run .\ollama_agent.py --chat --allow-input --model gemma4:e4b --max-steps 20
+```
+
+- `exit` で終了。モデルが動いている間の Ctrl+C はそのターンだけ止め、入力待ちでの Ctrl+C（または 2 回目）で終了
+- ボタンを押すツール（`press` `sequence` `set_state` `rest` `press_and_look`）は `--allow-input` を付けたときだけモデルに渡す。付けたときは、ターンの終わり・Ctrl+C で止めたとき・終了するときに必ず `rest` を送る
+- 攻略メモは自動では読まないので、最初に「`notes_read` で sf6 のメモを読んで」と頼む
 - 各ステップで、呼んだツール・引数・秒数・返答を表示し、最後にトークン数の合計を出す
-- 主なオプション：`--model`（既定 `qwen3.5:9b`）、`--ollama`（既定 `http://127.0.0.1:11434`）、`--max-steps`（既定 10）、`--no-think`（考えずに答える。速い）、`--image-mode tool|user`（画像を tool メッセージに載せるか、画像付きの user メッセージで足すか。どちらも効いた。既定は user）、`--save-images`
+- 主なオプション：`--model`（既定 `qwen3.5:9b`。押したあとの報告は `gemma4:e4b` のほうが正確だった）、`--ollama`（既定 `http://127.0.0.1:11434`）、`--max-steps`（1 つの指示でモデルを呼ぶ上限。既定 10）、`--keep-images`（会話に残す画像の枚数。既定 3、古いものから外す）、`--no-think`（考えずに答える。速い）、`--image-mode tool|user`（画像を tool メッセージに載せるか、画像付きの user メッセージで足すか。どちらも効いた。既定は user）、`--save-images`
 
 RTX 5070（12GB）＋ WSL の Ollama で試した結果：
 
