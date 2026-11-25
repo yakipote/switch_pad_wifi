@@ -22,6 +22,8 @@ Claude から使うための MCP サーバー。
   CAPTURE_HEIGHT     取り込み解像度の高さ（既定: 1080）
   CAPTURE_FOURCC     取り込み形式（既定: YUY2。MJPG は色化けする。空文字でデバイス既定のまま）
 
+  SWITCHPAD_NOTES_DIR  ゲームごとの攻略メモ（notes_* ツール）の保存先（既定: このフォルダの games/）
+
   SWITCHPAD_TOKEN が空なら、同じフォルダの config.h の API_TOKEN を読む
 
 使い方（おすすめ）
@@ -760,6 +762,195 @@ async def press_and_look(
 
 
 # ---------------------------------------------------------------
+# ゲームごとの攻略メモ（games/<slug>.md）
+#
+# 遊んで分かったこと（メニューの場所、コマンドの入力列など）を Markdown で貯めて、
+# 次に遊ぶときに読み返す。保存先は SWITCHPAD_NOTES_DIR（既定: このフォルダの games/）
+# ---------------------------------------------------------------
+
+import re
+import unicodedata
+
+NOTES_DIR = os.environ.get("SWITCHPAD_NOTES_DIR", "") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "games"
+)
+_notes_lock = threading.Lock()
+_SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
+
+
+def _note_slug(game: str) -> str:
+    """ゲーム名を slug（英小文字・数字・ハイフン）にする。使えない文字があればエラー。
+    / や .. を含む名前は通さないので、NOTES_DIR の外には出られない"""
+    s = unicodedata.normalize("NFKC", game).strip().lower()
+    if s.endswith(".md"):
+        s = s[:-3]
+    s = re.sub(r"[\s_]+", "-", s)
+    s = re.sub(r"-{2,}", "-", s).strip("-")
+    if not s or len(s) > 64 or not _SLUG_RE.match(s):
+        raise ValueError(
+            f"ゲーム名 {game!r} は使えません。英小文字・数字・ハイフンの短い名前にしてください"
+            "（例: sf6, pokemon-za）。既存のメモは notes_list で確認できます"
+        )
+    return s
+
+
+def _note_path(slug: str) -> str:
+    return os.path.join(NOTES_DIR, f"{slug}.md")
+
+
+def _note_title(path: str) -> str:
+    """最初の見出し（無ければ最初の空でない行）"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                m = _HEADING_RE.match(line)
+                return m.group(2) if m else line
+    except OSError:
+        pass
+    return ""
+
+
+def _notes_list_sync() -> dict[str, Any]:
+    games = []
+    if os.path.isdir(NOTES_DIR):
+        for name in sorted(os.listdir(NOTES_DIR)):
+            slug, ext = os.path.splitext(name)
+            if ext == ".md" and _SLUG_RE.match(slug):
+                games.append({"game": slug, "title": _note_title(os.path.join(NOTES_DIR, name))})
+    return {"games": games}
+
+
+def _notes_read_sync(game: str) -> dict[str, Any]:
+    slug = _note_slug(game)
+    try:
+        with open(_note_path(slug), encoding="utf-8") as f:
+            content = f.read()
+    except FileNotFoundError:
+        return {
+            "game": slug,
+            "exists": False,
+            "content": "",
+            "message": "このゲームのメモはまだ無い。分かったことがあれば notes_add で書き足す",
+        }
+    return {"game": slug, "exists": True, "content": content}
+
+
+def _format_note_text(text: str) -> str:
+    """1 行だけのメモは箇条書きにする（すでに Markdown の記号で始まっていればそのまま）"""
+    text = text.strip("\n").rstrip()
+    if "\n" not in text and not re.match(r"^\s*([-*+]\s|#|\||```|>|\d+\.\s)", text):
+        text = f"- {text.strip()}"
+    return text
+
+
+def _notes_add_sync(game: str, text: str, section: str | None, title: str | None) -> dict[str, Any]:
+    slug = _note_slug(game)
+    if not text.strip():
+        raise ValueError("text が空です")
+    entry = _format_note_text(text)
+    path = _note_path(slug)
+    with _notes_lock:
+        os.makedirs(NOTES_DIR, exist_ok=True)
+        try:
+            with open(path, encoding="utf-8") as f:
+                lines = f.read().splitlines()
+            created = False
+        except FileNotFoundError:
+            lines = [f"# {(title or slug).strip()}", ""]
+            created = True
+
+        section_created = False
+        name = (section or "").strip().lstrip("#").strip()
+        if name:
+            start = level = None
+            for i, line in enumerate(lines):
+                m = _HEADING_RE.match(line)
+                if m and m.group(2) == name:
+                    start, level = i, len(m.group(1))
+                    break
+            if start is None:
+                # 見出しが無ければ末尾に ## で作る
+                while lines and not lines[-1].strip():
+                    lines.pop()
+                lines += ["", f"## {name}", "", *entry.splitlines()]
+                section_created = True
+            else:
+                # その見出しの範囲（同じか上のレベルの次の見出しの手前）の最後に足す
+                end = len(lines)
+                for j in range(start + 1, len(lines)):
+                    m = _HEADING_RE.match(lines[j])
+                    if m and len(m.group(1)) <= level:
+                        end = j
+                        break
+                insert_at = end
+                while insert_at > start + 1 and not lines[insert_at - 1].strip():
+                    insert_at -= 1
+                block = entry.splitlines()
+                if insert_at == start + 1:
+                    block = ["", *block]  # 見出しの直後は 1 行空ける
+                if insert_at < len(lines):
+                    block = [*block, ""]  # 次の見出しとの間も 1 行空ける
+                lines[insert_at:end] = block
+        else:
+            while lines and not lines[-1].strip():
+                lines.pop()
+            lines += ["", *entry.splitlines()] if lines else entry.splitlines()
+
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write("\n".join(lines).rstrip("\n") + "\n")
+    return {
+        "ok": True,
+        "game": slug,
+        "created": created,
+        "section": name or None,
+        "section_created": section_created,
+        "added": entry,
+    }
+
+
+@mcp.tool()
+async def notes_list() -> dict[str, Any]:
+    """攻略メモがあるゲームの一覧（game=slug と、メモの見出し）を返す。
+
+    ゲームを始めるときに見て、該当するものがあれば notes_read で読む。
+    """
+    return await _in_thread(_notes_list_sync)
+
+
+@mcp.tool()
+async def notes_read(game: str) -> dict[str, Any]:
+    """ゲームの攻略メモ（games/<game>.md）を読む。
+
+    **ゲームを始める前に必ず読む**。メニューの場所、キャラの位置、コマンドの入力列など、
+    前に遊んだときに分かったことが書いてあるので、試行錯誤を省ける。
+    game は slug（英小文字・数字・ハイフン。例: sf6）。分からなければ先に notes_list。
+    """
+    return await _in_thread(_notes_read_sync, game)
+
+
+@mcp.tool()
+async def notes_add(
+    game: str, text: str, section: str | None = None, title: str | None = None
+) -> dict[str, Any]:
+    """ゲームの攻略メモに追記する。**遊んでいて新しく分かったことは、その場で書き足す**。
+
+    例: notes_add("sf6", "タイトル画面で Y を押すとトレーニングに直行できる", section="メニュー")
+    - 実際に試して確かめたことだけを書く。1 回に 1 項目、短く具体的に
+      （ボタン名・何段目か・入力列の JSON など、次に再現できる形で）
+    - 1 行のテキストは自動で「- 」付きの箇条書きになる
+    - section を指定すると、その見出しの下に追記する（無ければ末尾に ## で作る）。
+      指定しなければファイルの末尾に足す
+    - title はメモを新しく作るときの見出し（例: "ストリートファイター6"）。省略すると slug
+    - 公開されるファイルなので、個人情報やアカウント名は書かない
+    """
+    return await _in_thread(_notes_add_sync, game, text, section, title)
+
+
+# ---------------------------------------------------------------
 # VOICEVOX による読み上げと、Docker コンテナの管理
 #
 # キャプチャーサーバー（持ち主）で動く。コメントのイベントが来たら
@@ -964,7 +1155,11 @@ _console_handler_ref: Any = None
 
 
 # PID ファイル（--stop で止めるために使う）
-PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".switchpad-capture.pid")
+# 既定ポート以外（試験用に 2 つ目を立てたときなど）は別のファイルにして、本番の PID を上書きしない
+PID_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    ".switchpad-capture.pid" if SHARE_PORT == 8765 else f".switchpad-capture-{SHARE_PORT}.pid",
+)
 
 
 def _write_pid_file() -> None:

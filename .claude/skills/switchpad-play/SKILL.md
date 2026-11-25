@@ -1,6 +1,6 @@
 ---
 name: switchpad-play
-description: switchpad の MCP ツール（status / screenshot / press / press_and_look / sequence / set_state / rest / say）で Nintendo Switch 2 を操作するときの基本手順。Switch を操作する・ゲームを遊ぶ・画面を見る・メニューを進める・配信しながら遊ぶ、と頼まれたら最初に読む。
+description: switchpad の MCP ツール（status / screenshot / press / press_and_look / sequence / set_state / rest / say / notes_*）で Nintendo Switch 2 を操作するときの基本手順。Switch を操作する・ゲームを遊ぶ・画面を見る・メニューを進める・配信しながら遊ぶ、と頼まれたら最初に読む。
 ---
 
 # switchpad で Switch 2 を操作する
@@ -15,6 +15,14 @@ description: switchpad の MCP ツール（status / screenshot / press / press_a
    - `capture.error` が空でない → `make start`（または `make voice`）をお願いする
 2. `screenshot` で今の画面を見て、どこにいるかを短く `say` する
 3. スリープ復帰直後の「A つづける」画面では HOME が効かない。A で進むと HDR の案内が出ることがあるので、十字キー左で「あとで」→ A。そのあと HOME（`b13`）でホームメニューに戻れる
+4. **遊ぶゲームが決まったら `notes_read(game)` で攻略メモを読む**（slug が分からなければ `notes_list`）。メニューの近道、キャラの位置、コマンドの入力列など、前回分かったことが書いてある。メモに書いてある手順はそのまま使ってよい
+
+## 1.5 攻略メモを育てる
+
+- 遊んでいて**新しく分かったこと・メモと違っていたこと**は、その場で `notes_add(game, text, section=...)` で書き足す。区切りのいいところでまとめて書くのでもよいが、忘れないうちに
+- 実際に試して確かめたことだけを、次に再現できる形で書く（ボタン名、何段目の何番目、`sequence` の JSON など）。推測は書かない
+- 見出し（section）は既存のものに合わせる（`メニュー`、`キャラクター選択`、`コマンド`、`画面の見かた` など）
+- メモは公開リポジトリに入るので、個人情報やアカウント名は書かない
 
 ## 2. 操作のループ
 
@@ -88,3 +96,4 @@ description: switchpad の MCP ツール（status / screenshot / press / press_a
 - 2026-11-25：作成。スリープ復帰の手順を追加
 - 2026-11-25：SF6 の録画から追加。VOICEVOX の読み上げの間合い、録画時は気持ちも say、sequence 直後は 1〜2 秒待って撮る、演出のある画面は 1 回ずつ押す、1P ランプの確かめ方
 - 2026-11-25：say に wait を追加したので、間を空けるのは sleep ではなく say(wait=True) にする、と書き換え
+- 2026-11-26：攻略メモ（notes_list / notes_read / notes_add）を追加。ゲームを始めたら notes_read、新しく分かったら notes_add

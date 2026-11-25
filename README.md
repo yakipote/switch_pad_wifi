@@ -200,6 +200,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\switchpad.ps1 start
 - 「HOME 画面に戻って」
 - 「ストリートファイター6 を起動して、トレーニングモードに入って」
 - 「操作するときは say で何をするか一言しゃべって」
+- 「今日分かったことを攻略メモに書いておいて」
 
 ### 操作の決まりごと（スキル）
 
@@ -216,6 +217,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\switchpad.ps1 start
 | `sequence` | タイミング付きの入力列（コマンド技など） |
 | `set_state` / `rest` | 押しっぱなし／全部離す |
 | `say` | 配信画面にコメントを出す（`make voice` なら読み上げも）。`wait=True` で言い終わるまで待つ |
+| `notes_list` | 攻略メモがあるゲームの一覧 |
+| `notes_read` | ゲームの攻略メモ（`games/<名前>.md`）を読む |
+| `notes_add` | 攻略メモに追記する（`section` を付けるとその見出しの下に） |
+
+### ゲームごとの攻略メモ
+
+Claude が遊んで分かったこと（メニューの近道、キャラの位置、コマンドの入力列など）を [games/](games/) に Markdown で貯めて、次に遊ぶときに読み返します。ゲームを始めたら `notes_read`、新しく分かったら `notes_add`、という流れはスキルに書いてあります。
+
+- ファイル名はゲームの短い名前（英小文字・数字・ハイフン）。例：[games/sf6.md](games/sf6.md)（ストリートファイター6）
+- 手で書き足しても OK。`notes_add` は日付を付けず、`section` の見出しが無ければ末尾に作ります
+- `games/` はリポジトリに入るので、公開して困ることは書かない
+- 保存先は環境変数 `SWITCHPAD_NOTES_DIR` で変えられます
 
 ### ライブ表示と配信
 
