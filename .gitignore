@@ -28,3 +28,6 @@ Thumbs.db
 desktop.ini
 .DS_Store
 .vscode/
+
+# ブログ記事の下書き（公開前のものはリポジトリに入れない）
+blog/
