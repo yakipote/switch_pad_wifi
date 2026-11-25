@@ -1,0 +1,30 @@
+# 秘密情報（Wi-Fi パスワード・API トークン）。雛形は config.example.h
+config.h
+
+# この PC の設定（ESP32 の IP など）。雛形は .env.example
+.env
+
+# Claude / MCP のローカル設定（トークンが入る）
+.claude/settings.local.json
+.mcp.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# 実行時に作られるファイル
+.switchpad-capture.pid
+test.jpg
+*.log
+
+# Arduino ビルド成果物
+build/
+*.bin
+*.elf
+
+# OS / エディタ
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
