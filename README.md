@@ -160,7 +160,7 @@ claude mcp add --transport http switchpad http://127.0.0.1:8765/mcp
 
 ```powershell
 make start     # 常駐サーバーを起動（最小化したウィンドウで動く）
-make voice     # 読み上げ付きで起動したいときはこちら（Docker Desktop を先に起動）
+make voice     # 読み上げ付きで起動したいときはこちら（Docker Desktop が止まっていれば自動で起動する）
 make status    # ESP32・キャプチャー・VOICEVOX の状態を確認
 make view      # ライブ表示をブラウザで開く
 make stop      # 止める（VOICEVOX のコンテナも止まる）
@@ -169,7 +169,7 @@ make stop      # 止める（VOICEVOX のコンテナも止まる）
 | コマンド | 内容 |
 |---|---|
 | `make start` | 常駐キャプチャーサーバーを起動 |
-| `make voice` | ＋VOICEVOX（ずんだもん）で読み上げ。初回はイメージのダウンロードで数分かかる |
+| `make voice` | ＋VOICEVOX（ずんだもん）で読み上げ。Docker Desktop が止まっていれば起動して待つ。初回はイメージのダウンロードで数分かかる |
 | `make stop` | 停止 |
 | `make restart` | 停止して起動し直す |
 | `make status` | 3 つの状態をまとめて表示 |
@@ -279,6 +279,7 @@ VOICEVOX を配信で使うときは、キャラクターごとのクレジッ�
 | ボタンは効くのにゲーム内で動かない | 1P になっていない。HOME → コントローラー →「持ちかた/順番を変える」で L+R を押す。Joy-Con は外しておく |
 | `screenshot` が返ってこない | 幅 640 より大きいと止まることがある。`max_width` を下げて `crop` を使う |
 | `make` が見つからない | `winget install ezwinports.make` のあと、PowerShell を開き直す。Claude アプリの Terminal パネルや VS Code のターミナルは、アプリごと再起動しないと新しい PATH が入らない |
+| `make voice` で「起動中に終了しました」 | 最小化したウィンドウ（タスクバー）にエラーが出ている。Docker の問題なら Docker Desktop の画面も確認。読み上げなしでよければ `make start` |
 
 ## 4. 注意
 
